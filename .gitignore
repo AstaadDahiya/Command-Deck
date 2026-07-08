@@ -1,0 +1,9 @@
+node_modules
+dist
+lib
+.env
+.env.*
+*.env
+.firebase
+firebase-debug.log
+.DS_Store

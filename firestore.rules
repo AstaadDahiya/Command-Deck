@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /incidents/{incident} {
+      // Anyone can view the incidents dashboard
+      allow read: if true;
+      // ONLY the backend Cloud Function can write or update incidents
+      allow write: if false; 
+    }
+    match /sopChunks/{chunk} {
+      // Only the backend needs to read these for RAG, but opening read is fine if you want to display them
+      allow read: if true;
+      allow write: if false;
+    }
+    match /events/{event} {
+      // Anyone can trigger the demo by writing to events
+      // To prevent spam, we at least validate it has the required shape
+      allow read: if true;
+      allow write: if request.resource.data.keys().hasAll(['source', 'zone', 'timestamp', 'raw']);
+    }
+  }
+}
