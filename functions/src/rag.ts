@@ -1,14 +1,17 @@
 import { GoogleGenAI } from "@google/genai";
 
-// Initialize Gemini client using API key from environment
-// We'll set this using Firebase secrets or .env later
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 /**
- * Computes cosine similarity between two vectors.
+ * Computes cosine similarity between two embedding vectors.
+ * Returns a value between -1 (opposite) and 1 (identical).
+ *
+ * @param vecA - First embedding vector
+ * @param vecB - Second embedding vector
+ * @returns Cosine similarity score, or 0 if vectors are incompatible
  */
 export function cosineSimilarity(vecA: number[], vecB: number[]): number {
-  if (vecA.length !== vecB.length) return 0;
+  if (vecA.length !== vecB.length || vecA.length === 0) return 0;
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
@@ -22,16 +25,24 @@ export function cosineSimilarity(vecA: number[], vecB: number[]): number {
 }
 
 /**
- * Gets embeddings for a text string using Gemini.
+ * Generates a text embedding vector using the Gemini embedding model.
+ *
+ * @param text - The input text to embed
+ * @returns A numeric embedding vector
+ * @throws Error if the embedding API returns empty results
  */
 export async function getEmbedding(text: string): Promise<number[]> {
+  if (!text || text.trim().length === 0) {
+    throw new Error("Cannot embed empty text");
+  }
+
   const response = await ai.models.embedContent({
     model: 'gemini-embedding-2',
     contents: text,
   });
   
   if (!response.embeddings || response.embeddings.length === 0 || !response.embeddings[0].values) {
-      throw new Error("Failed to generate embedding");
+    throw new Error("Failed to generate embedding: empty response");
   }
   return response.embeddings[0].values;
 }

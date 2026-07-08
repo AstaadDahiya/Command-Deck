@@ -14,14 +14,38 @@ if (!getApps().length) {
 const db = getFirestore();
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+/** Time window for correlating events from the same zone. */
 const CORRELATION_WINDOW_MS = 3 * 60 * 1000; // 3 minutes
 
+/** Valid event source types. */
+const VALID_SOURCES = new Set(['radio', 'sensor', 'cctv']);
+
+/** Severity levels recognized by the system. */
+const VALID_SEVERITIES = new Set(['low', 'medium', 'high', 'critical']);
+
+/**
+ * Firestore-triggered Cloud Function: processes each new event document.
+ * 
+ * Pipeline:
+ * 1. Deduplication guard — checks for existing pending incident in the same zone
+ * 2. Source diversity check — requires 2+ distinct sources before triggering
+ * 3. RAG retrieval — finds the most relevant SOP chunk via embedding similarity
+ * 4. Gemini reasoning — synthesizes a severity assessment with recommended action
+ * 5. Atomic write — creates or updates the incident inside a Firestore transaction
+ */
 export const onNewEvent = onDocumentCreated("events/{eventId}", async (event) => {
     const snap = event.data;
     if (!snap) return;
 
     const newEventData = snap.data();
-    const zone = newEventData.zone;
+    const zone = newEventData.zone as string;
+
+    // Validate event source
+    if (!VALID_SOURCES.has(newEventData.source as string)) {
+        console.warn(`Invalid event source: ${newEventData.source}. Skipping.`);
+        return;
+    }
+
     const now = Date.now();
     const windowStart = new Date(now - CORRELATION_WINDOW_MS);
 
@@ -37,7 +61,7 @@ export const onNewEvent = onDocumentCreated("events/{eventId}", async (event) =>
                 .limit(1);
 
             const pendingSnap = await tx.get(pendingIncidentsQuery);
-            let incidentDoc = pendingSnap.empty ? null : pendingSnap.docs[0];
+            const incidentDoc = pendingSnap.empty ? null : pendingSnap.docs[0];
 
             // 2. Fetch recent events in this zone for the time window
             const recentEventsQuery = db.collection("events")
@@ -45,7 +69,10 @@ export const onNewEvent = onDocumentCreated("events/{eventId}", async (event) =>
                 .where("timestamp", ">=", windowStart);
             
             const recentEventsSnap = await tx.get(recentEventsQuery);
-            const recentEvents = recentEventsSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+            const recentEvents = recentEventsSnap.docs.map(d => {
+                const data = d.data();
+                return { id: d.id, source: data.source as string, raw: data.raw as Record<string, unknown> };
+            });
 
             // If no existing incident, we need at least 2 different sources to trigger
             if (!incidentDoc) {
@@ -58,7 +85,7 @@ export const onNewEvent = onDocumentCreated("events/{eventId}", async (event) =>
 
             console.log(`Triggering reasoning for zone ${zone} with ${recentEvents.length} recent events.`);
 
-            // 3. RAG: Retrieve SOPs
+            // 3. RAG: Retrieve most relevant SOP
             const summaryStr = recentEvents.map(e => `${e.source}: ${JSON.stringify(e.raw)}`).join(" | ");
             let topSop = "No specific SOP found.";
             
@@ -68,28 +95,28 @@ export const onNewEvent = onDocumentCreated("events/{eventId}", async (event) =>
                 const sopsSnap = await tx.get(sopsQuery);
                 
                 let maxSim = -1;
-                let bestSopDoc: any = null;
+                let bestSopDoc: { title: string; text: string } | null = null;
                 
-                sopsSnap.docs.forEach(doc => {
-                    const data = doc.data() as any;
-                    if (data.embedding) {
-                        const sim = cosineSimilarity(queryEmbedding, data.embedding);
+                sopsSnap.docs.forEach(sopDoc => {
+                    const data = sopDoc.data();
+                    if (data.embedding && Array.isArray(data.embedding)) {
+                        const sim = cosineSimilarity(queryEmbedding, data.embedding as number[]);
                         if (sim > maxSim) {
                             maxSim = sim;
-                            bestSopDoc = data;
+                            bestSopDoc = { title: data.title as string, text: data.text as string };
                         }
                     }
                 });
                 
                 if (bestSopDoc) {
-                    topSop = bestSopDoc.text;
-                    console.log(`Matched SOP: ${bestSopDoc.title} (sim: ${maxSim})`);
+                    topSop = (bestSopDoc as { title: string; text: string }).text;
+                    console.log(`Matched SOP: ${(bestSopDoc as { title: string; text: string }).title} (sim: ${maxSim.toFixed(4)})`);
                 }
             } catch (err) {
                 console.error("RAG retrieval failed:", err);
             }
 
-            // 4. Call Gemini
+            // 4. Call Gemini for structured reasoning
             const prompt = `
 You are an AI operations analyst for a stadium command center. You are given
 correlated raw signals from multiple sources describing activity in one zone,
@@ -113,15 +140,14 @@ Respond ONLY with valid JSON in this exact shape, no markdown, no preamble:
 Be conservative: only escalate severity if multiple independent signals genuinely corroborate each other. Do not invent signals that were not given.
 `;
 
-            let generatedJson: any = {
-                severity: "low",
+            let generatedJson = {
+                severity: "low" as string,
                 brief: "Analysis failed due to error.",
                 recommendedAction: "Review raw feeds manually.",
                 sopSource: "N/A"
             };
 
             try {
-                // Calling Gemini inside transaction means it will retry if the read set changes (e.g., new event arrives mid-flight)
                 const response = await ai.models.generateContent({
                     model: 'gemini-2.5-flash',
                     contents: prompt,
@@ -130,17 +156,22 @@ Be conservative: only escalate severity if multiple independent signals genuinel
                     }
                 });
                 
-                let text = response.text || "{}";
+                const text = response.text || "{}";
                 generatedJson = parseGeminiResponse(text);
                 
             } catch (err) {
                 console.error("Gemini call failed:", err);
             }
 
-            // 5. Write to Firestore
+            // Validate severity from Gemini
+            if (!VALID_SEVERITIES.has(generatedJson.severity)) {
+                generatedJson.severity = 'medium';
+            }
+
+            // 5. Write to Firestore atomically
             const incidentData = {
                 severity: generatedJson.severity,
-                zone: zone,
+                zone,
                 brief: generatedJson.brief,
                 evidenceEventIds: recentEvents.map(e => e.id),
                 recommendedAction: generatedJson.recommendedAction,
@@ -166,11 +197,22 @@ Be conservative: only escalate severity if multiple independent signals genuinel
     }
 });
 
+/**
+ * HTTP endpoint to seed the SOP database.
+ * Restricts to POST/GET methods only.
+ */
 export const seedDatabase = onRequest(async (req, res) => {
+    if (req.method !== 'POST' && req.method !== 'GET') {
+        res.status(405).send('Method not allowed');
+        return;
+    }
+
     try {
         await seedSOPs();
         res.status(200).send("Database seeded successfully!");
-    } catch (err: any) {
-        res.status(500).send("Error seeding database: " + err.message);
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        console.error('Seed failed:', message);
+        res.status(500).send("Error seeding database: " + message);
     }
 });

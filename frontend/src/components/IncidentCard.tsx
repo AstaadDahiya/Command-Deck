@@ -1,38 +1,59 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import type { Timestamp } from 'firebase/firestore';
 
+/** Represents a processed incident from the AI reasoning pipeline. */
 export interface Incident {
   id: string;
-  severity: "low" | "medium" | "high" | "critical";
+  severity: 'low' | 'medium' | 'high' | 'critical';
   zone: string;
   brief: string;
   evidenceEventIds: string[];
   recommendedAction: string;
   sopSource: string;
-  status: "pending" | "approved" | "dismissed";
-  createdAt: any;
+  status: 'pending' | 'approved' | 'dismissed';
+  createdAt: Timestamp | null;
 }
 
-const severityColors = {
-  low: 'bg-gray-700 border-gray-500 text-gray-200',
-  medium: 'bg-yellow-900/50 border-yellow-600 text-yellow-200',
-  high: 'bg-orange-900/50 border-orange-600 text-orange-200',
-  critical: 'bg-red-900/50 border-red-600 text-red-200'
+const severityConfig: Record<Incident['severity'], { classes: string; icon: string; label: string }> = {
+  low:      { classes: 'bg-gray-700 border-gray-500 text-gray-200',         icon: 'ℹ️', label: 'Low severity' },
+  medium:   { classes: 'bg-yellow-900/50 border-yellow-600 text-yellow-200', icon: '⚠️', label: 'Medium severity' },
+  high:     { classes: 'bg-orange-900/50 border-orange-600 text-orange-200', icon: '🔶', label: 'High severity' },
+  critical: { classes: 'bg-red-900/50 border-red-600 text-red-200',         icon: '🔴', label: 'Critical severity' }
 };
 
-export const IncidentCard: React.FC<{ incident: Incident, onApprove: (id: string) => void, onDismiss: (id: string) => void }> = ({ incident, onApprove, onDismiss }) => {
+interface IncidentCardProps {
+  incident: Incident;
+  onApprove: (id: string) => void;
+  onDismiss: (id: string) => void;
+}
+
+/** Renders a single incident card with severity indicator, action buttons, and evidence trail. */
+export const IncidentCard: React.FC<IncidentCardProps> = ({ incident, onApprove, onDismiss }) => {
   const [expanded, setExpanded] = useState(false);
+  const config = severityConfig[incident.severity];
+
+  const formattedTime = incident.createdAt
+    ? new Date(incident.createdAt.toMillis ? incident.createdAt.toMillis() : Date.now()).toLocaleTimeString()
+    : '';
 
   return (
-    <div className={`p-4 mb-4 border rounded-lg shadow-lg ${severityColors[incident.severity]} transition-all duration-500 ease-in-out animate-fade-in`}>
+    <article
+      className={`p-4 mb-4 border rounded-lg shadow-lg ${config.classes} transition-all duration-500 ease-in-out animate-fade-in`}
+      aria-label={`${config.label} incident at ${incident.zone}`}
+    >
       <div className="flex justify-between items-start mb-2">
         <h3 className="text-lg font-bold">{incident.zone}</h3>
         <div className="flex flex-col items-end gap-1">
-          <span className="px-2 py-1 text-xs font-semibold uppercase tracking-wider rounded bg-black/30 border border-white/10">
-            {incident.severity}
+          <span
+            className="px-2 py-1 text-xs font-semibold uppercase tracking-wider rounded bg-black/30 border border-white/10"
+            aria-label={config.label}
+            role="status"
+          >
+            {config.icon} {incident.severity}
           </span>
-          <span className="text-[10px] text-white/50 font-mono">
-            {incident.createdAt ? new Date(incident.createdAt.toMillis ? incident.createdAt.toMillis() : Date.now()).toLocaleTimeString() : ''}
-          </span>
+          <time className="text-[10px] text-white/50 font-mono" dateTime={formattedTime}>
+            {formattedTime}
+          </time>
         </div>
       </div>
       
@@ -47,34 +68,51 @@ export const IncidentCard: React.FC<{ incident: Incident, onApprove: (id: string
       </div>
 
       {incident.status === 'pending' ? (
-        <div className="flex gap-2 mb-2">
-          <button onClick={() => onApprove(incident.id)} className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 rounded font-bold transition-colors">
-            Approve & Dispatch
+        <div className="flex gap-2 mb-2" role="group" aria-label="Incident actions">
+          <button
+            onClick={() => onApprove(incident.id)}
+            aria-label={`Approve and dispatch incident at ${incident.zone}`}
+            className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 rounded font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2 focus:ring-offset-slate-900"
+          >
+            ✅ Approve & Dispatch
           </button>
-          <button onClick={() => onDismiss(incident.id)} className="flex-1 bg-gray-600 hover:bg-gray-500 text-white py-2 rounded font-bold transition-colors">
-            Dismiss
+          <button
+            onClick={() => onDismiss(incident.id)}
+            aria-label={`Dismiss incident at ${incident.zone}`}
+            className="flex-1 bg-gray-600 hover:bg-gray-500 text-white py-2 rounded font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 focus:ring-offset-slate-900"
+          >
+            ❌ Dismiss
           </button>
         </div>
       ) : (
-        <div className={`text-center py-2 rounded font-bold uppercase tracking-wider text-sm ${incident.status === 'approved' ? 'bg-green-900/50 text-green-400' : 'bg-gray-800 text-gray-400'}`}>
-          {incident.status}
+        <div
+          className={`text-center py-2 rounded font-bold uppercase tracking-wider text-sm ${incident.status === 'approved' ? 'bg-green-900/50 text-green-400' : 'bg-gray-800 text-gray-400'}`}
+          role="status"
+          aria-label={`Incident ${incident.status}`}
+        >
+          {incident.status === 'approved' ? '✅ ' : '❌ '}{incident.status}
         </div>
       )}
 
-      <button onClick={() => setExpanded(!expanded)} className="text-xs text-gray-400 hover:text-white transition-colors w-full text-left mt-2 flex justify-between">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
+        aria-controls={`evidence-${incident.id}`}
+        className="text-xs text-gray-400 hover:text-white transition-colors w-full text-left mt-2 flex justify-between focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1"
+      >
         <span>Evidence Trail ({incident.evidenceEventIds.length} signals)</span>
-        <span>{expanded ? '▲' : '▼'}</span>
+        <span aria-hidden="true">{expanded ? '▲' : '▼'}</span>
       </button>
 
       {expanded && (
-        <div className="mt-2 pt-2 border-t border-white/10 text-xs text-gray-300">
+        <div id={`evidence-${incident.id}`} className="mt-2 pt-2 border-t border-white/10 text-xs text-gray-300" role="list" aria-label="Evidence event IDs">
           <ul className="list-disc pl-4 space-y-1">
-            {incident.evidenceEventIds.map((id, idx) => (
-              <li key={idx}>Event ID: {id}</li>
+            {incident.evidenceEventIds.map((eid, idx) => (
+              <li key={idx} role="listitem">Event ID: <code>{eid}</code></li>
             ))}
           </ul>
         </div>
       )}
-    </div>
+    </article>
   );
-}
+};

@@ -1,22 +1,35 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Incident cards — read-only from the frontend
     match /incidents/{incident} {
-      // Anyone can view the incidents dashboard
       allow read: if true;
-      // ONLY the backend Cloud Function can write or update incidents
+      // Only backend Cloud Functions can write (via Admin SDK, which bypasses rules)
       allow write: if false; 
     }
+
+    // SOP chunks for RAG retrieval — read-only
     match /sopChunks/{chunk} {
-      // Only the backend needs to read these for RAG, but opening read is fine if you want to display them
       allow read: if true;
       allow write: if false;
     }
+
+    // Events — the frontend writes demo events here
     match /events/{event} {
-      // Anyone can trigger the demo by writing to events
-      // To prevent spam, we at least validate it has the required shape
       allow read: if true;
-      allow write: if request.resource.data.keys().hasAll(['source', 'zone', 'timestamp', 'raw']);
+      // Validate required fields and constrain source to known enum values
+      allow create: if request.resource.data.keys().hasAll(['source', 'zone', 'timestamp', 'raw'])
+                    && request.resource.data.source in ['radio', 'sensor', 'cctv']
+                    && request.resource.data.zone is string
+                    && request.resource.data.zone.size() > 0
+                    && request.resource.data.zone.size() <= 100;
+      // Events are immutable once written
+      allow update, delete: if false;
+    }
+
+    // Deny all access to any other collection
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

@@ -1,34 +1,67 @@
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase";
+import type { Timestamp } from "firebase/firestore";
 
-export type EventSource = "radio" | "sensor" | "cctv";
+/** The three possible event source types in the Command Deck pipeline. */
+export type EventSource = 'radio' | 'sensor' | 'cctv';
 
-export interface OpsEvent {
-  source: EventSource;
-  zone: string;
-  timestamp: any;
-  raw: any;
+/** Raw payload for a radio transcript event. */
+export interface RadioPayload {
+  transcript: string;
 }
 
-const scenarioEvents = [
-  { delayMs: 0,     source: "sensor", raw: { density: 60, threshold: 50, metric: "people/sqm" } },
-  { delayMs: 5000,  source: "radio",  raw: { transcript: "Control, we have some pushing starting at Gate 7 West." } },
-  { delayMs: 15000, source: "sensor", raw: { density: 75, threshold: 50, metric: "people/sqm" } },
-  { delayMs: 25000, source: "radio",  raw: { transcript: "Medical needed at Gate 7 West, someone is getting crushed against the turnstile." } },
-  { delayMs: 35000, source: "cctv",   raw: { anomalyType: "Crowd Surge", confidence: 0.92, camera: "CAM-G7W-02" } },
-  { delayMs: 45000, source: "sensor", raw: { density: 88, threshold: 50, metric: "people/sqm" } },
-  { delayMs: 55000, source: "sensor", raw: { density: 95, threshold: 50, metric: "people/sqm" } },
-  { delayMs: 65000, source: "radio",  raw: { transcript: "Gate 7 West is completely blocked, we need to open the overflow gates now!" } },
+/** Raw payload for a crowd density sensor event. */
+export interface SensorPayload {
+  density: number;
+  threshold: number;
+  metric: string;
+}
+
+/** Raw payload for a CCTV anomaly detection event. */
+export interface CCTVPayload {
+  anomalyType: string;
+  confidence: number;
+  camera: string;
+}
+
+/** A raw operational event from any source in the stadium. */
+export interface OpsEvent {
+  id: string;
+  source: EventSource;
+  zone: string;
+  timestamp: Timestamp | null;
+  raw: RadioPayload | SensorPayload | CCTVPayload;
+}
+
+interface ScenarioStep {
+  delayMs: number;
+  source: EventSource;
+  raw: RadioPayload | SensorPayload | CCTVPayload;
+}
+
+const scenarioEvents: ScenarioStep[] = [
+  { delayMs: 0,     source: 'sensor', raw: { density: 60, threshold: 50, metric: 'people/sqm' } },
+  { delayMs: 5000,  source: 'radio',  raw: { transcript: 'Control, we have some pushing starting at Gate 7 West.' } },
+  { delayMs: 15000, source: 'sensor', raw: { density: 75, threshold: 50, metric: 'people/sqm' } },
+  { delayMs: 25000, source: 'radio',  raw: { transcript: 'Medical needed at Gate 7 West, someone is getting crushed against the turnstile.' } },
+  { delayMs: 35000, source: 'cctv',   raw: { anomalyType: 'Crowd Surge', confidence: 0.92, camera: 'CAM-G7W-02' } },
+  { delayMs: 45000, source: 'sensor', raw: { density: 88, threshold: 50, metric: 'people/sqm' } },
+  { delayMs: 55000, source: 'sensor', raw: { density: 95, threshold: 50, metric: 'people/sqm' } },
+  { delayMs: 65000, source: 'radio',  raw: { transcript: 'Gate 7 West is completely blocked, we need to open the overflow gates now!' } },
 ];
 
-export async function triggerScenario() {
-  const zone = "Gate 7 West";
+/**
+ * Triggers the pre-scripted Gate 7 West crowd surge scenario.
+ * Fires events with realistic delays to simulate a live escalation.
+ */
+export async function triggerScenario(): Promise<void> {
+  const zone = 'Gate 7 West';
   console.log(`Starting scenario for ${zone}...`);
   
   for (const event of scenarioEvents) {
     setTimeout(async () => {
       try {
-        await addDoc(collection(db, "events"), {
+        await addDoc(collection(db, 'events'), {
           source: event.source,
           zone,
           timestamp: serverTimestamp(),
@@ -36,7 +69,7 @@ export async function triggerScenario() {
         });
         console.log(`Fired ${event.source} event for ${zone}`);
       } catch (err) {
-        console.error("Failed to add event:", err);
+        console.error('Failed to add event:', err);
       }
     }, event.delayMs);
   }

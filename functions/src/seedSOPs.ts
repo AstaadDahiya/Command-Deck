@@ -1,8 +1,16 @@
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
+import { fileURLToPath } from 'url';
 import { getEmbedding } from "./rag.js";
 
-const sops = [
+/** Standard Operating Procedure definition for seeding. */
+interface SOPDefinition {
+  title: string;
+  text: string;
+}
+
+/** Pre-defined SOP chunks covering stadium operations procedures. */
+const sops: SOPDefinition[] = [
   {
     title: "Gate Capacity Thresholds",
     text: "§4.1: If density exceeds 70% at any main gate, increase visible steward presence. If density exceeds 85%, halt incoming flow and redirect to overflow gates. Gate 7 West capacity is 500 people."
@@ -25,7 +33,11 @@ const sops = [
   }
 ];
 
-export async function seedSOPs() {
+/**
+ * Seeds the Firestore `sopChunks` collection with pre-defined SOP text
+ * and their corresponding Gemini embedding vectors for RAG retrieval.
+ */
+export async function seedSOPs(): Promise<void> {
   if (!getApps().length) {
     initializeApp();
   }
@@ -53,9 +65,7 @@ export async function seedSOPs() {
   console.log("SOPs successfully seeded to Firestore.");
 }
 
-import { fileURLToPath } from 'url';
-
-// Allow running directly
+// Allow running directly via CLI
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   seedSOPs().then(() => process.exit(0)).catch(err => {
     console.error(err);
