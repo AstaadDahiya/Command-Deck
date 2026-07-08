@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { collection, onSnapshot, query, orderBy, doc, updateDoc } from 'firebase/firestore'
-import { db } from './firebase'
+import { signInAnonymously } from 'firebase/auth'
+import { db, auth } from './firebase'
 import { IncidentCard } from './components/IncidentCard'
 import type { Incident } from './components/IncidentCard'
 import { RawFeedPanel } from './components/RawFeedPanel'
@@ -16,8 +17,18 @@ function App() {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [events, setEvents] = useState<OpsEvent[]>([])
   const [isTriggering, setIsTriggering] = useState(false)
+  const [authReady, setAuthReady] = useState(false)
 
   useEffect(() => {
+    signInAnonymously(auth).then(() => {
+      setAuthReady(true);
+    }).catch(err => {
+      console.error("Auth failed:", err);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!authReady) return;
     const qIncidents = query(collection(db, 'incidents'), orderBy('createdAt', 'desc'));
     const unsubIncidents = onSnapshot(qIncidents, (snapshot) => {
       const inc = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Incident));
@@ -34,7 +45,17 @@ function App() {
       unsubIncidents();
       unsubEvents();
     }
-  }, []);
+  }, [authReady]);
+
+  const eventTimestamps = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const evt of events) {
+      if (evt.timestamp) {
+        map.set(evt.id, evt.timestamp.toMillis ? evt.timestamp.toMillis() : Date.now());
+      }
+    }
+    return map;
+  }, [events]);
 
   /** Triggers the demo scenario and manages button loading state. */
   const handleTriggerScenario = useCallback(async () => {
@@ -108,9 +129,12 @@ function App() {
           {incidents.map(incident => {
             let surfacedIn = '';
             if (incident.createdAt && incident.evidenceEventIds.length > 0) {
-              const evidenceEvents = events.filter(e => incident.evidenceEventIds.includes(e.id));
-              if (evidenceEvents.length > 0) {
-                const oldest = Math.min(...evidenceEvents.map(e => e.timestamp?.toMillis() ?? Date.now()));
+              let oldest = Infinity;
+              for (const eid of incident.evidenceEventIds) {
+                const ts = eventTimestamps.get(eid);
+                if (ts && ts < oldest) oldest = ts;
+              }
+              if (oldest !== Infinity) {
                 const created = incident.createdAt.toMillis ? incident.createdAt.toMillis() : Date.now();
                 const diffSecs = Math.max(0, Math.floor((created - oldest) / 1000));
                 surfacedIn = `${diffSecs}s`;
