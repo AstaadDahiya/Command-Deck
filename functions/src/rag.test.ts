@@ -1,5 +1,20 @@
-import { describe, it, expect } from 'vitest';
-import { cosineSimilarity } from './rag.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { cosineSimilarity, getEmbedding } from './rag.js';
+
+const { mockEmbedContent } = vi.hoisted(() => {
+  return { mockEmbedContent: vi.fn() };
+});
+
+// Mock the entire @google/genai module
+vi.mock('@google/genai', () => {
+  return {
+    GoogleGenAI: class {
+      models = {
+        embedContent: mockEmbedContent
+      }
+    }
+  };
+});
 
 describe('cosineSimilarity', () => {
     it('returns 1 for identical vectors', () => {
@@ -68,5 +83,48 @@ describe('cosineSimilarity', () => {
         const sim = cosineSimilarity(a, b);
         expect(sim).toBeGreaterThan(0.9);
         expect(sim).toBeLessThanOrEqual(1);
+    });
+});
+
+describe('getEmbedding', () => {
+    beforeEach(() => {
+        mockEmbedContent.mockReset();
+    });
+
+    it('throws error for empty text', async () => {
+        await expect(getEmbedding('')).rejects.toThrow("Cannot embed empty text");
+    });
+
+    it('throws error for whitespace-only text', async () => {
+        await expect(getEmbedding('   \n  ')).rejects.toThrow("Cannot embed empty text");
+    });
+
+    it('throws error when response has no embeddings array', async () => {
+        mockEmbedContent.mockResolvedValueOnce({
+            embeddings: undefined
+        });
+        await expect(getEmbedding('test')).rejects.toThrow("Failed to generate embedding: empty response");
+    });
+
+    it('throws error when response has empty embeddings array', async () => {
+        mockEmbedContent.mockResolvedValueOnce({
+            embeddings: []
+        });
+        await expect(getEmbedding('test')).rejects.toThrow("Failed to generate embedding: empty response");
+    });
+
+    it('throws error when first embedding has no values', async () => {
+        mockEmbedContent.mockResolvedValueOnce({
+            embeddings: [{ values: undefined }]
+        });
+        await expect(getEmbedding('test')).rejects.toThrow("Failed to generate embedding: empty response");
+    });
+
+    it('returns the embedding values when successful', async () => {
+        mockEmbedContent.mockResolvedValueOnce({
+            embeddings: [{ values: [0.1, 0.2, 0.3] }]
+        });
+        const result = await getEmbedding('valid text');
+        expect(result).toEqual([0.1, 0.2, 0.3]);
     });
 });

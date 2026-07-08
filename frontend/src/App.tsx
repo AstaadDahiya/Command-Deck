@@ -105,14 +105,27 @@ function App() {
               Waiting for incidents... Trigger scenario to begin.
             </div>
           )}
-          {incidents.map(incident => (
-            <IncidentCard 
-              key={incident.id} 
-              incident={incident} 
-              onApprove={handleApprove} 
-              onDismiss={handleDismiss} 
-            />
-          ))}
+          {incidents.map(incident => {
+            let surfacedIn = '';
+            if (incident.createdAt && incident.evidenceEventIds.length > 0) {
+              const evidenceEvents = events.filter(e => incident.evidenceEventIds.includes(e.id));
+              if (evidenceEvents.length > 0) {
+                const oldest = Math.min(...evidenceEvents.map(e => e.timestamp?.toMillis() ?? Date.now()));
+                const created = incident.createdAt.toMillis ? incident.createdAt.toMillis() : Date.now();
+                const diffSecs = Math.max(0, Math.floor((created - oldest) / 1000));
+                surfacedIn = `${diffSecs}s`;
+              }
+            }
+            return (
+              <IncidentCard 
+                key={incident.id} 
+                incident={incident} 
+                surfacedIn={surfacedIn}
+                onApprove={handleApprove} 
+                onDismiss={handleDismiss} 
+              />
+            )
+          })}
         </div>
       </main>
 

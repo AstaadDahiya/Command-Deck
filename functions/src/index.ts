@@ -1,5 +1,6 @@
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onRequest } from "firebase-functions/v2/https";
+import * as logger from "firebase-functions/logger";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getEmbedding, cosineSimilarity } from "./rag.js";
@@ -42,14 +43,14 @@ export const onNewEvent = onDocumentCreated("events/{eventId}", async (event) =>
 
     // Validate event source
     if (!VALID_SOURCES.has(newEventData.source as string)) {
-        console.warn(`Invalid event source: ${newEventData.source}. Skipping.`);
+        logger.warn(`Invalid event source: ${newEventData.source}. Skipping.`);
         return;
     }
 
     const now = Date.now();
     const windowStart = new Date(now - CORRELATION_WINDOW_MS);
 
-    console.log(`Processing new event ${event.id} for zone ${zone}...`);
+    logger.info(`Processing new event ${event.id} for zone ${zone}...`);
 
     try {
         await db.runTransaction(async (tx) => {
@@ -74,16 +75,15 @@ export const onNewEvent = onDocumentCreated("events/{eventId}", async (event) =>
                 return { id: d.id, source: data.source as string, raw: data.raw as Record<string, unknown> };
             });
 
-            // If no existing incident, we need at least 2 different sources to trigger
             if (!incidentDoc) {
                 const sources = new Set(recentEvents.map(e => e.source));
                 if (sources.size < 2) {
-                    console.log(`Not enough diverse signals for ${zone} to trigger correlation.`);
+                    logger.info(`Not enough diverse signals for ${zone} to trigger correlation.`);
                     return;
                 }
             }
 
-            console.log(`Triggering reasoning for zone ${zone} with ${recentEvents.length} recent events.`);
+            logger.info(`Triggering reasoning for zone ${zone} with ${recentEvents.length} recent events.`);
 
             // 3. RAG: Retrieve most relevant SOP
             const summaryStr = recentEvents.map(e => `${e.source}: ${JSON.stringify(e.raw)}`).join(" | ");
@@ -110,10 +110,10 @@ export const onNewEvent = onDocumentCreated("events/{eventId}", async (event) =>
                 
                 if (bestSopDoc) {
                     topSop = (bestSopDoc as { title: string; text: string }).text;
-                    console.log(`Matched SOP: ${(bestSopDoc as { title: string; text: string }).title} (sim: ${maxSim.toFixed(4)})`);
+                    logger.info(`Matched SOP: ${(bestSopDoc as { title: string; text: string }).title} (sim: ${maxSim.toFixed(4)})`);
                 }
             } catch (err) {
-                console.error("RAG retrieval failed:", err);
+                logger.error("RAG retrieval failed:", err);
             }
 
             // 4. Call Gemini for structured reasoning
@@ -160,7 +160,7 @@ Be conservative: only escalate severity if multiple independent signals genuinel
                 generatedJson = parseGeminiResponse(text);
                 
             } catch (err) {
-                console.error("Gemini call failed:", err);
+                logger.error("Gemini call failed:", err);
             }
 
             // Validate severity from Gemini
@@ -182,18 +182,18 @@ Be conservative: only escalate severity if multiple independent signals genuinel
 
             if (incidentDoc) {
                 tx.update(incidentDoc.ref, incidentData);
-                console.log(`Transaction: Updated existing incident ${incidentDoc.id} for zone ${zone}`);
+                logger.info(`Transaction: Updated existing incident ${incidentDoc.id} for zone ${zone}`);
             } else {
                 const newDocRef = db.collection("incidents").doc();
                 tx.set(newDocRef, {
                     ...incidentData,
                     createdAt: FieldValue.serverTimestamp()
                 });
-                console.log(`Transaction: Created new incident for zone ${zone}`);
+                logger.info(`Transaction: Created new incident for zone ${zone}`);
             }
         });
     } catch (err) {
-        console.error("Transaction failed:", err);
+        logger.error("Transaction failed:", err);
     }
 });
 
@@ -201,7 +201,7 @@ Be conservative: only escalate severity if multiple independent signals genuinel
  * HTTP endpoint to seed the SOP database.
  * Restricts to POST/GET methods only.
  */
-export const seedDatabase = onRequest(async (req, res) => {
+export const seedDatabase = onRequest({ cors: true }, async (req, res) => {
     if (req.method !== 'POST' && req.method !== 'GET') {
         res.status(405).send('Method not allowed');
         return;
@@ -212,7 +212,7 @@ export const seedDatabase = onRequest(async (req, res) => {
         res.status(200).send("Database seeded successfully!");
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Unknown error';
-        console.error('Seed failed:', message);
+        logger.error('Seed failed:', message);
         res.status(500).send("Error seeding database: " + message);
     }
 });

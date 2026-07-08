@@ -23,12 +23,13 @@ const severityConfig: Record<Incident['severity'], { classes: string; icon: stri
 
 interface IncidentCardProps {
   incident: Incident;
+  surfacedIn?: string;
   onApprove: (id: string) => void;
   onDismiss: (id: string) => void;
 }
 
 /** Renders a single incident card with severity indicator, action buttons, and evidence trail. */
-export const IncidentCard: React.FC<IncidentCardProps> = ({ incident, onApprove, onDismiss }) => {
+export const IncidentCard: React.FC<IncidentCardProps> = ({ incident, surfacedIn, onApprove, onDismiss }) => {
   const [expanded, setExpanded] = useState(false);
   const config = severityConfig[incident.severity];
 
@@ -51,19 +52,20 @@ export const IncidentCard: React.FC<IncidentCardProps> = ({ incident, onApprove,
           >
             {config.icon} {incident.severity}
           </span>
-          <time className="text-[10px] text-white/50 font-mono" dateTime={formattedTime}>
+          <time className="text-[10px] text-white/70 font-mono flex items-center gap-2" dateTime={formattedTime}>
             {formattedTime}
+            {surfacedIn && <span className="text-blue-300 font-bold bg-blue-900/40 px-1 rounded">⚡ Surfaced in {surfacedIn}</span>}
           </time>
         </div>
       </div>
       
       <p className="mb-4 text-sm font-medium">{incident.brief}</p>
       
-      <div className="bg-black/20 p-3 rounded-md mb-4 border border-white/5">
-        <p className="text-xs text-gray-400 mb-1 font-semibold uppercase tracking-wider">Recommended Action</p>
+      <div className="bg-black/40 p-3 rounded-md mb-4 border border-white/10">
+        <p className="text-xs text-gray-300 mb-1 font-semibold uppercase tracking-wider">Recommended Action</p>
         <p className="text-sm font-bold text-white">{incident.recommendedAction}</p>
-        <p className="text-xs text-gray-400 mt-2 italic flex gap-1">
-          <span className="text-blue-400">SOP Citation:</span> {incident.sopSource}
+        <p className="text-xs text-gray-300 mt-2 italic flex gap-1">
+          <span className="text-blue-300">SOP Citation:</span> {incident.sopSource}
         </p>
       </div>
 
@@ -85,12 +87,22 @@ export const IncidentCard: React.FC<IncidentCardProps> = ({ incident, onApprove,
           </button>
         </div>
       ) : (
-        <div
-          className={`text-center py-2 rounded font-bold uppercase tracking-wider text-sm ${incident.status === 'approved' ? 'bg-green-900/50 text-green-400' : 'bg-gray-800 text-gray-400'}`}
-          role="status"
-          aria-label={`Incident ${incident.status}`}
-        >
-          {incident.status === 'approved' ? '✅ ' : '❌ '}{incident.status}
+        <div className="space-y-2">
+          <div
+            className={`text-center py-2 rounded font-bold uppercase tracking-wider text-sm ${incident.status === 'approved' ? 'bg-green-900/50 text-green-400 border border-green-500/30' : 'bg-gray-800 text-gray-300 border border-gray-600'}`}
+            role="status"
+            aria-label={`Incident ${incident.status}`}
+          >
+            {incident.status === 'approved' ? '✅ ' : '❌ '}{incident.status}
+          </div>
+          
+          {incident.status === 'approved' && (
+            <div className="bg-blue-900/30 p-3 rounded border border-blue-500/30" role="status" aria-label="Dispatch instruction">
+              <p className="text-xs text-blue-300 font-semibold mb-1 uppercase">📡 Dispatch Transmitted</p>
+              <p className="text-sm text-gray-200">"Attention: {incident.recommendedAction}"</p>
+              <p className="text-sm text-gray-400 italic mt-1" aria-label="Spanish translation">"Atención: {incident.recommendedAction} (Translated)"</p>
+            </div>
+          )}
         </div>
       )}
 
