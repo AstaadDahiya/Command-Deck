@@ -39,6 +39,11 @@ interface ScenarioStep {
   raw: RadioPayload | SensorPayload | CCTVPayload;
 }
 
+/** Waits for the specified number of milliseconds. */
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 const scenarioEvents: ScenarioStep[] = [
   { delayMs: 0,     source: 'sensor', raw: { density: 60, threshold: 50, metric: 'people/sqm' } },
   { delayMs: 5000,  source: 'radio',  raw: { transcript: 'Control, we have some pushing starting at Gate 7 West.' } },
@@ -52,25 +57,24 @@ const scenarioEvents: ScenarioStep[] = [
 
 /**
  * Triggers the pre-scripted Gate 7 West crowd surge scenario.
- * Fires events with realistic delays to simulate a live escalation.
+ * Fires events sequentially with realistic delays to simulate a live escalation.
  */
 export async function triggerScenario(): Promise<void> {
   const zone = 'Gate 7 West';
-  console.log(`Starting scenario for ${zone}...`);
-  
+  let lastDelay = 0;
+
   for (const event of scenarioEvents) {
-    setTimeout(async () => {
-      try {
-        await addDoc(collection(db, 'events'), {
-          source: event.source,
-          zone,
-          timestamp: serverTimestamp(),
-          raw: event.raw
-        });
-        console.log(`Fired ${event.source} event for ${zone}`);
-      } catch (err) {
-        console.error('Failed to add event:', err);
-      }
-    }, event.delayMs);
+    const waitMs = event.delayMs - lastDelay;
+    if (waitMs > 0) {
+      await delay(waitMs);
+    }
+    lastDelay = event.delayMs;
+
+    await addDoc(collection(db, 'events'), {
+      source: event.source,
+      zone,
+      timestamp: serverTimestamp(),
+      raw: event.raw
+    });
   }
 }

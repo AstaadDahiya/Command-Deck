@@ -1,5 +1,6 @@
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
+import * as logger from "firebase-functions/logger";
 import { fileURLToPath } from 'url';
 import { getEmbedding } from "./rag.js";
 
@@ -30,6 +31,18 @@ const sops: SOPDefinition[] = [
   {
     title: "Multilingual Announcement Protocol",
     text: "§7.1: All critical emergency instructions must be dispatched to stewards in their primary language. PA announcements must be made in English, Spanish, and the language of the opposing team."
+  },
+  {
+    title: "Evacuation Procedures",
+    text: "§8.1: Full evacuation is triggered when 3+ zones report critical severity simultaneously. Activate all emergency exits, deploy stewards to guide flow using designated evacuation routes. Ensure wheelchair-accessible exits are staffed."
+  },
+  {
+    title: "VIP Area Protocols",
+    text: "§9.1: VIP area incidents are escalated directly to the security director. VIP zones have a lower density threshold (40%) and require dedicated steward teams. All VIP evacuations use separate routes from general admission."
+  },
+  {
+    title: "CCTV Anomaly Verification",
+    text: "§3.2: When a CCTV anomaly is flagged with confidence above 80%, dispatch a roving steward to the zone within 90 seconds for visual confirmation. If confirmed, escalate immediately. If false positive, log and dismiss."
   }
 ];
 
@@ -43,7 +56,7 @@ export async function seedSOPs(): Promise<void> {
   }
   const db = getFirestore();
   
-  console.log("Seeding SOPs...");
+  logger.info("Seeding SOPs...");
   const batch = db.batch();
   
   for (const sop of sops) {
@@ -55,20 +68,20 @@ export async function seedSOPs(): Promise<void> {
         text: sop.text,
         embedding
       });
-      console.log(`Prepared SOP: ${sop.title}`);
+      logger.info(`Prepared SOP: ${sop.title}`);
     } catch (error) {
-      console.error(`Failed to embed SOP: ${sop.title}`, error);
+      logger.error(`Failed to embed SOP: ${sop.title}`, error);
     }
   }
   
   await batch.commit();
-  console.log("SOPs successfully seeded to Firestore.");
+  logger.info("SOPs successfully seeded to Firestore.");
 }
 
 // Allow running directly via CLI
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   seedSOPs().then(() => process.exit(0)).catch(err => {
-    console.error(err);
+    logger.error("Seed CLI failed:", err);
     process.exit(1);
   });
 }

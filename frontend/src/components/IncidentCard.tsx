@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import type { Timestamp } from 'firebase/firestore';
 
 /** Represents a processed incident from the AI reasoning pipeline. */
@@ -29,12 +29,15 @@ interface IncidentCardProps {
 }
 
 /** Renders a single incident card with severity indicator, action buttons, and evidence trail. */
-export const IncidentCard: React.FC<IncidentCardProps> = ({ incident, surfacedIn, onApprove, onDismiss }) => {
+export const IncidentCard = memo<IncidentCardProps>(function IncidentCard({ incident, surfacedIn, onApprove, onDismiss }) {
   const [expanded, setExpanded] = useState(false);
   const config = severityConfig[incident.severity];
 
-  const formattedTime = incident.createdAt
-    ? new Date(incident.createdAt.toMillis ? incident.createdAt.toMillis() : Date.now()).toLocaleTimeString()
+  const isoTime = incident.createdAt?.toMillis
+    ? new Date(incident.createdAt.toMillis()).toISOString()
+    : '';
+  const displayTime = incident.createdAt?.toMillis
+    ? new Date(incident.createdAt.toMillis()).toLocaleTimeString()
     : '';
 
   return (
@@ -52,10 +55,12 @@ export const IncidentCard: React.FC<IncidentCardProps> = ({ incident, surfacedIn
           >
             {config.icon} {incident.severity}
           </span>
-          <time className="text-[10px] text-white/70 font-mono flex items-center gap-2" dateTime={formattedTime}>
-            {formattedTime}
-            {surfacedIn && <span className="text-blue-300 font-bold bg-blue-900/40 px-1 rounded">⚡ Surfaced in {surfacedIn}</span>}
-          </time>
+          {displayTime && (
+            <time className="text-[10px] text-white/70 font-mono flex items-center gap-2" dateTime={isoTime}>
+              {displayTime}
+              {surfacedIn && <span className="text-blue-300 font-bold bg-blue-900/40 px-1 rounded">⚡ Surfaced in {surfacedIn}</span>}
+            </time>
+          )}
         </div>
       </div>
       
@@ -76,7 +81,7 @@ export const IncidentCard: React.FC<IncidentCardProps> = ({ incident, surfacedIn
             aria-label={`Approve and dispatch incident at ${incident.zone}`}
             className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 rounded font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2 focus:ring-offset-slate-900"
           >
-            ✅ Approve & Dispatch
+            ✅ Approve &amp; Dispatch
           </button>
           <button
             onClick={() => onDismiss(incident.id)}
@@ -99,8 +104,8 @@ export const IncidentCard: React.FC<IncidentCardProps> = ({ incident, surfacedIn
           {incident.status === 'approved' && (
             <div className="bg-blue-900/30 p-3 rounded border border-blue-500/30" role="status" aria-label="Dispatch instruction">
               <p className="text-xs text-blue-300 font-semibold mb-1 uppercase">📡 Dispatch Transmitted</p>
-              <p className="text-sm text-gray-200">"Attention: {incident.recommendedAction}"</p>
-              <p className="text-sm text-gray-400 italic mt-1" aria-label="Spanish translation">"Atención: {incident.recommendedAction} (Translated)"</p>
+              <p className="text-sm text-gray-200">&quot;Attention: {incident.recommendedAction}&quot;</p>
+              <p className="text-sm text-gray-400 italic mt-1" lang="es" aria-label="Spanish translation">&quot;Atención: {incident.recommendedAction}&quot;</p>
             </div>
           )}
         </div>
@@ -116,15 +121,18 @@ export const IncidentCard: React.FC<IncidentCardProps> = ({ incident, surfacedIn
         <span aria-hidden="true">{expanded ? '▲' : '▼'}</span>
       </button>
 
-      {expanded && (
-        <div id={`evidence-${incident.id}`} className="mt-2 pt-2 border-t border-white/10 text-xs text-gray-300" role="list" aria-label="Evidence event IDs">
-          <ul className="list-disc pl-4 space-y-1">
-            {incident.evidenceEventIds.map((eid, idx) => (
-              <li key={idx} role="listitem">Event ID: <code>{eid}</code></li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <div
+        id={`evidence-${incident.id}`}
+        className={`mt-2 pt-2 border-t border-white/10 text-xs text-gray-300 ${expanded ? '' : 'hidden'}`}
+        role="list"
+        aria-label="Evidence event IDs"
+      >
+        <ul className="list-disc pl-4 space-y-1">
+          {incident.evidenceEventIds.map((eid) => (
+            <li key={eid} role="listitem">Event ID: <code>{eid}</code></li>
+          ))}
+        </ul>
+      </div>
     </article>
   );
-};
+});

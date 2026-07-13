@@ -1,24 +1,28 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Incident cards — read-only from the frontend
+    // Incident cards — authenticated read, status-only update
     match /incidents/{incident} {
       allow read: if request.auth != null;
-      // Only backend Cloud Functions can write (via Admin SDK, which bypasses rules)
-      allow write: if false; 
+      // Allow authenticated users to update ONLY the status field to valid values
+      allow update: if request.auth != null
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+                    && request.resource.data.status in ['approved', 'dismissed'];
+      // Only backend Cloud Functions can create/delete (via Admin SDK, which bypasses rules)
+      allow create, delete: if false;
     }
 
-    // SOP chunks for RAG retrieval — read-only
+    // SOP chunks for RAG retrieval — authenticated read-only
     match /sopChunks/{chunk} {
       allow read: if request.auth != null;
       allow write: if false;
     }
 
-    // Events — the frontend writes demo events here
+    // Events — authenticated users can create events with validated fields
     match /events/{event} {
       allow read: if request.auth != null;
       // Validate required fields and constrain source to known enum values
-      allow create: if request.auth != null 
+      allow create: if request.auth != null
                     && request.resource.data.keys().hasAll(['source', 'zone', 'timestamp', 'raw'])
                     && request.resource.data.source in ['radio', 'sensor', 'cctv']
                     && request.resource.data.zone is string
